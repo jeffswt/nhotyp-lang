@@ -13,6 +13,7 @@ enum Error {
     MalformedLoop { line: usize },
     MalformedRet { line: usize },
     MalformedFunc { line: usize },
+    MalformedEnd { line: usize },
 }
 
 impl Error {
@@ -25,6 +26,7 @@ impl Error {
             Self::MalformedLoop { line } => format!("MalformedLoop({})", line),
             Self::MalformedRet { line } => format!("MalformedRet({})", line),
             Self::MalformedFunc { line } => format!("MalformedFunc({})", line),
+            Self::MalformedEnd { line } => format!("MalformedEnd({})", line),
         }
     }
 
@@ -50,6 +52,9 @@ impl Error {
             }
             Self::MalformedFunc { line } => {
                 format!("bad function definition at line {})", line)
+            }
+            Self::MalformedEnd { line } => {
+                format!("illegal code block end at line {})", line)
             }
         }
     }
@@ -154,7 +159,7 @@ enum Statement {
 }
 
 struct Node {
-    nodes: Vec<Statement>,
+    stmts: Vec<Statement>,
 }
 
 struct State<'a> {
@@ -162,7 +167,7 @@ struct State<'a> {
     ptr: usize,
 }
 
-type StmtParseResult = Result<Option<Statement>, Error>;
+type StmtParseResult = Result<Statement, Error>;
 
 pub fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // let <variable> = <expression>
@@ -175,11 +180,11 @@ pub fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResul
     for i in 3..len {
         tokens.push(Token::from_any(state, words[i])?);
     }
-    Ok(Some(Statement::Assign {
+    Ok(Statement::Assign {
         var,
         expr: Expr { tokens },
         line: state.ptr,
-    }))
+    })
 }
 
 pub fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
@@ -197,11 +202,11 @@ pub fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     }
     // get child node
     state.ptr += 1;
-    Ok(Some(Statement::Cond {
+    Ok(Statement::Cond {
         expr: Expr { tokens },
         child: parse_node(state, "if")?,
         line: state.ptr,
-    }))
+    })
 }
 
 pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
@@ -219,11 +224,11 @@ pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     }
     // get child node
     state.ptr += 1;
-    Ok(Some(Statement::Loop {
+    Ok(Statement::Loop {
         expr: Expr { tokens },
         child: parse_node(state, "while")?,
         line: state.ptr,
-    }))
+    })
 }
 
 pub fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
@@ -233,10 +238,10 @@ pub fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult
     for i in 1..words.len() {
         vars.push(Token::from_var(state, words[i])?);
     }
-    Ok(Some(Statement::Print {
+    Ok(Statement::Print {
         vars,
         line: state.ptr,
-    }))
+    })
 }
 
 pub fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
@@ -249,10 +254,10 @@ pub fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     for i in 1..len {
         tokens.push(Token::from_any(state, words[i])?);
     }
-    Ok(Some(Statement::Ret {
+    Ok(Statement::Ret {
         expr: Expr { tokens },
         line: state.ptr,
-    }))
+    })
 }
 
 pub fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
@@ -271,27 +276,15 @@ pub fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     }
     // get child node
     state.ptr += 1;
-    Ok(Some(Statement::Func {
+    Ok(Statement::Func {
         name,
         params,
         child: parse_node(&mut state, "function")?,
         line: state.ptr,
-    }))
+    })
 }
 
-pub fn parse_stmt(state: &mut State) -> StmtParseResult {
-    // eradicate comments
-    let mut line = String::from(state.lines[state.ptr]);
-    if line.contains('#') {
-        let splits: Vec<_> = line.split('#').collect();
-        line = String::from(splits[0]);
-    }
-    // filter into singular words and check if is empty line
-    let words: Vec<_> = line.split(' ').filter(|w| w.len() > 0).collect();
-    if words.len() == 0 {
-        return Ok(None);
-    }
-    // filter by expression type
+pub fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     match words[0] {
         "let" => parse_stmt_assign(&mut state, &words),
         "if" => parse_stmt_cond(&mut state, &words),
@@ -307,11 +300,32 @@ pub fn parse_stmt(state: &mut State) -> StmtParseResult {
 }
 
 pub fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
-    // eradicate comments
-    Err(Error::IllegalChar {
-        line: 0,
-        value: '2',
-    })
+    let mut stmts = vec![];
+    // splitting words here to check for terminations
+    while state.ptr < state.lines.len() {
+        // eradicate comments
+        let mut line = String::from(state.lines[state.ptr]);
+        if line.contains('#') {
+            let splits: Vec<_> = line.split('#').collect();
+            line = String::from(splits[0]);
+        }
+        // filter into singular words and check if is empty line
+        let words: Vec<_> = line.split(' ').filter(|w| w.len() > 0).collect();
+        if words.len() == 0 {
+            continue;
+        }
+        // 'end' statement triggers code block close
+        if words[0] == "end" {
+            if words.len() == 2 && words[1] == term {
+                break;
+            }
+            return Err(Error::MalformedEnd { line: state.ptr });
+        }
+        // send statement to corresponding parser
+        stmts.push(parse_stmt(&mut state, &words)?);
+    }
+    // done node parsing
+    Ok(Node { stmts })
 }
 
 fn main() {
