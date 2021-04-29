@@ -124,7 +124,7 @@ enum Statement {
         child: Node,
     },
     Print {
-        expr: Expr,
+        vars: Vec<Token>,
     },
     Ret {
         var: Token,
@@ -206,6 +206,16 @@ pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     }))
 }
 
+pub fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+    // print <var1> <var2> ... <varn>
+    // allows 0 variables
+    let mut vars = vec![];
+    for i in 1..words.len() {
+        vars.push(Token::from_var(state, words[i])?);
+    }
+    Ok(Some(Statement::Print { vars }))
+}
+
 pub fn parse_stmt(state: &mut State) -> StmtParseResult {
     // eradicate comments
     let mut line = String::from(state.lines[state.ptr]);
@@ -222,6 +232,8 @@ pub fn parse_stmt(state: &mut State) -> StmtParseResult {
     match words[0] {
         "let" => parse_stmt_assign(&mut state, &words),
         "if" => parse_stmt_cond(&mut state, &words),
+        "while" => parse_stmt_loop(&mut state, &words),
+        "print" => parse_stmt_print(&mut state, &words),
         _ => Err(Error::UnknownExpr {
             line: state.ptr,
             value: String::from(words[0].to_string()),
