@@ -11,6 +11,8 @@ enum Error {
     MalformedAssign { line: usize },
     MalformedCond { line: usize },
     MalformedLoop { line: usize },
+    MalformedRet { line: usize },
+    MalformedFunc { line: usize },
 }
 
 impl Error {
@@ -21,6 +23,8 @@ impl Error {
             Self::MalformedAssign { line } => format!("MalformedAssign({})", line),
             Self::MalformedCond { line } => format!("MalformedCond({})", line),
             Self::MalformedLoop { line } => format!("MalformedLoop({})", line),
+            Self::MalformedRet { line } => format!("MalformedRet({})", line),
+            Self::MalformedFunc { line } => format!("MalformedFunc({})", line),
         }
     }
 
@@ -40,6 +44,12 @@ impl Error {
             }
             Self::MalformedLoop { line } => {
                 format!("malformed loop statement at line {})", line)
+            }
+            Self::MalformedRet { line } => {
+                format!("malformed return statement at line {})", line)
+            }
+            Self::MalformedFunc { line } => {
+                format!("bad function definition at line {})", line)
             }
         }
     }
@@ -76,8 +86,9 @@ impl Token {
         let x: Vec<_> = s
             .chars()
             .filter(|c| match c {
-                'a'..='z' => false,
                 '0'..='9' => !allow_const,
+                '-' => !allow_const,
+                'a'..='z' => false,
                 '_' => false,
                 _ => true,
             })
@@ -114,25 +125,31 @@ enum Statement {
     Assign {
         var: Token,
         expr: Expr,
+        line: usize,
     },
     Cond {
         expr: Expr,
         child: Node,
+        line: usize,
     },
     Loop {
         expr: Expr,
         child: Node,
+        line: usize,
     },
     Print {
         vars: Vec<Token>,
+        line: usize,
     },
     Ret {
-        var: Token,
+        expr: Expr,
+        line: usize,
     },
     Func {
         name: Token,
         params: Vec<Token>,
         child: Node,
+        line: usize,
     },
 }
 
@@ -161,6 +178,7 @@ pub fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResul
     Ok(Some(Statement::Assign {
         var,
         expr: Expr { tokens },
+        line: state.ptr,
     }))
 }
 
@@ -182,6 +200,7 @@ pub fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     Ok(Some(Statement::Cond {
         expr: Expr { tokens },
         child: parse_node(state, "if")?,
+        line: state.ptr,
     }))
 }
 
@@ -203,6 +222,7 @@ pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     Ok(Some(Statement::Loop {
         expr: Expr { tokens },
         child: parse_node(state, "while")?,
+        line: state.ptr,
     }))
 }
 
@@ -213,7 +233,50 @@ pub fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult
     for i in 1..words.len() {
         vars.push(Token::from_var(state, words[i])?);
     }
-    Ok(Some(Statement::Print { vars }))
+    Ok(Some(Statement::Print {
+        vars,
+        line: state.ptr,
+    }))
+}
+
+pub fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+    // return <expression>
+    let len = words.len();
+    if len < 2 {
+        return Err(Error::MalformedRet { line: state.ptr });
+    }
+    let mut tokens = vec![];
+    for i in 1..len {
+        tokens.push(Token::from_any(state, words[i])?);
+    }
+    Ok(Some(Statement::Ret {
+        expr: Expr { tokens },
+        line: state.ptr,
+    }))
+}
+
+pub fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+    // function <name> <param1> <param2> ... <paramn> as
+    //     <code block>
+    // end function
+    let len = words.len();
+    if words.len() < 3 || words[len - 1] != "as" {
+        return Err(Error::MalformedFunc { line: state.ptr });
+    }
+    // parse parameters
+    let name = Token::from_var(state, words[1])?;
+    let mut params = vec![];
+    for i in 2..len - 1 {
+        params.push(Token::from_var(state, words[i])?);
+    }
+    // get child node
+    state.ptr += 1;
+    Ok(Some(Statement::Func {
+        name,
+        params,
+        child: parse_node(&mut state, "function")?,
+        line: state.ptr,
+    }))
 }
 
 pub fn parse_stmt(state: &mut State) -> StmtParseResult {
@@ -234,6 +297,8 @@ pub fn parse_stmt(state: &mut State) -> StmtParseResult {
         "if" => parse_stmt_cond(&mut state, &words),
         "while" => parse_stmt_loop(&mut state, &words),
         "print" => parse_stmt_print(&mut state, &words),
+        "return" => parse_stmt_ret(&mut state, &words),
+        "function" => parse_stmt_func(&mut state, &words),
         _ => Err(Error::UnknownExpr {
             line: state.ptr,
             value: String::from(words[0].to_string()),
