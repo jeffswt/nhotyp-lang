@@ -22,6 +22,7 @@ enum Error {
     DuplicateToken { line: usize, value: String },
     WildStatement { line: usize },
     WildFunction { line: usize },
+    MissingMain,
 }
 
 impl Error {
@@ -41,6 +42,7 @@ impl Error {
             }
             Self::WildStatement { line } => format!("WildStatement({})", line),
             Self::WildFunction { line } => format!("WildFunction({})", line),
+            Self::MissingMain => format!("MissingMain"),
         }
     }
 
@@ -82,23 +84,25 @@ impl Error {
             Self::WildFunction { .. } => {
                 format!("function should not appear in functions")
             }
+            Self::MissingMain { .. } => format!("missing main function"),
         }
     }
 
     pub fn line(&self) -> usize {
-        *match self {
-            Self::IllegalChar { line, .. } => line,
-            Self::TokenTooLong { line, .. } => line,
-            Self::UnknownExpr { line, .. } => line,
-            Self::MalformedAssign { line, .. } => line,
-            Self::MalformedCond { line, .. } => line,
-            Self::MalformedLoop { line, .. } => line,
-            Self::MalformedRet { line, .. } => line,
-            Self::MalformedFunc { line, .. } => line,
-            Self::MalformedEnd { line, .. } => line,
-            Self::DuplicateToken { line, .. } => line,
-            Self::WildStatement { line, .. } => line,
-            Self::WildFunction { line, .. } => line,
+        match self {
+            Self::IllegalChar { line, .. } => *line,
+            Self::TokenTooLong { line, .. } => *line,
+            Self::UnknownExpr { line, .. } => *line,
+            Self::MalformedAssign { line, .. } => *line,
+            Self::MalformedCond { line, .. } => *line,
+            Self::MalformedLoop { line, .. } => *line,
+            Self::MalformedRet { line, .. } => *line,
+            Self::MalformedFunc { line, .. } => *line,
+            Self::MalformedEnd { line, .. } => *line,
+            Self::DuplicateToken { line, .. } => *line,
+            Self::WildStatement { line, .. } => *line,
+            Self::WildFunction { line, .. } => *line,
+            Self::MissingMain => 0,
         }
     }
 }
@@ -510,7 +514,11 @@ struct RunInstance<'a> {
     scope: HashMap<Token, Variable>,
 }
 
-fn run_program(content: &str) -> Result<i32, Error> {
+fn call_function(func: &Function, params: Vec<Variable>) -> Result<Variable, Error> {
+    Ok(Variable::from(0))
+}
+
+fn run_program(content: &str) -> Result<i64, Error> {
     // parse file for functions
     let mut state = State {
         lines: content.split('\n').collect(),
@@ -550,8 +558,16 @@ fn run_program(content: &str) -> Result<i32, Error> {
             return Err(Error::WildStatement { line: stmt.line() });
         }
     }
-    // call for execution
-    Ok(0)
+    // check if main function exists and call
+    let main_token = Token {
+        value: String::from("main"),
+    };
+    let main_func = if let Some(v) = prog.funcs.get(&main_token) {
+        v
+    } else {
+        return Err(Error::MissingMain);
+    };
+    Ok(call_function(main_func, vec![])?.data as i64)
 }
 
 fn main() {
@@ -575,7 +591,7 @@ fn main() {
     }
     // parse and execute
     match run_program(&content) {
-        Ok(v) => (),
+        Ok(v) => std::process::exit((v & 0xffffffffi64) as i32),
         Err(err) => eprintln!("{}:{}: error: {}", &args[1], err.line(), err.format()),
     }
 }
