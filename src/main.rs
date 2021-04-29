@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::error::Error as StdError;
 use std::fmt;
@@ -18,6 +19,9 @@ enum Error {
     MalformedRet { line: usize },
     MalformedFunc { line: usize },
     MalformedEnd { line: usize },
+    DuplicateToken { line: usize, value: String },
+    WildStatement { line: usize },
+    WildFunction { line: usize },
 }
 
 impl Error {
@@ -32,38 +36,69 @@ impl Error {
             Self::MalformedRet { line } => format!("MalformedRet({})", line),
             Self::MalformedFunc { line } => format!("MalformedFunc({})", line),
             Self::MalformedEnd { line } => format!("MalformedEnd({})", line),
+            Self::DuplicateToken { line, value } => {
+                format!("DuplicateToken({}, {:?})", line, value)
+            }
+            Self::WildStatement { line } => format!("WildStatement({})", line),
+            Self::WildFunction { line } => format!("WildFunction({})", line),
         }
     }
 
     pub fn format(&self) -> String {
         match self {
-            Self::IllegalChar { line, value } => {
-                format!("unexpected character {:?} at line {}", value, line)
+            Self::IllegalChar { value, .. } => {
+                format!("unexpected character {:?}", value)
             }
-            Self::TokenTooLong { line, value } => {
-                format!("token length exceeded ({} of 63) at line {}", value, line)
+            Self::TokenTooLong { value, .. } => {
+                format!("token length exceeded ({} of 63)", value)
             }
-            Self::UnknownExpr { line, value } => {
-                format!("unexpected statement token {:?} at line {})", value, line)
+            Self::UnknownExpr { value, .. } => {
+                format!("unexpected statement token {:?}", value)
             }
-            Self::MalformedAssign { line } => {
-                format!("malformed assignment statement at line {})", line)
+            Self::MalformedAssign { .. } => {
+                format!("malformed assignment statement")
             }
-            Self::MalformedCond { line } => {
-                format!("malformed conditional statement at line {})", line)
+            Self::MalformedCond { .. } => {
+                format!("malformed conditional statement")
             }
-            Self::MalformedLoop { line } => {
-                format!("malformed loop statement at line {})", line)
+            Self::MalformedLoop { .. } => {
+                format!("malformed loop statement")
             }
-            Self::MalformedRet { line } => {
-                format!("malformed return statement at line {})", line)
+            Self::MalformedRet { .. } => {
+                format!("malformed return statement")
             }
-            Self::MalformedFunc { line } => {
-                format!("bad function definition at line {})", line)
+            Self::MalformedFunc { .. } => {
+                format!("bad function definition")
             }
-            Self::MalformedEnd { line } => {
-                format!("illegal code block end at line {})", line)
+            Self::MalformedEnd { .. } => {
+                format!("illegal code block end")
             }
+            Self::DuplicateToken { value, .. } => {
+                format!("conflict token {:?}", value)
+            }
+            Self::WildStatement { .. } => {
+                format!("statements should appear in functions")
+            }
+            Self::WildFunction { .. } => {
+                format!("function should not appear in functions")
+            }
+        }
+    }
+
+    pub fn line(&self) -> usize {
+        *match self {
+            Self::IllegalChar { line, .. } => line,
+            Self::TokenTooLong { line, .. } => line,
+            Self::UnknownExpr { line, .. } => line,
+            Self::MalformedAssign { line, .. } => line,
+            Self::MalformedCond { line, .. } => line,
+            Self::MalformedLoop { line, .. } => line,
+            Self::MalformedRet { line, .. } => line,
+            Self::MalformedFunc { line, .. } => line,
+            Self::MalformedEnd { line, .. } => line,
+            Self::DuplicateToken { line, .. } => line,
+            Self::WildStatement { line, .. } => line,
+            Self::WildFunction { line, .. } => line,
         }
     }
 }
@@ -93,6 +128,7 @@ impl StdError for Error {
 ///////////////////////////////////////////////////////////////////////////////
 /// Tokens and Expressions
 
+#[derive(Eq, PartialEq, Ord, PartialOrd, Hash)]
 struct Token {
     value: String,
 }
@@ -177,6 +213,19 @@ enum Statement {
         child: Node,
         line: usize,
     },
+}
+
+impl Statement {
+    pub fn line(&self) -> usize {
+        *match self {
+            Self::Assign { line, .. } => line,
+            Self::Cond { line, .. } => line,
+            Self::Loop { line, .. } => line,
+            Self::Print { line, .. } => line,
+            Self::Ret { line, .. } => line,
+            Self::Func { line, .. } => line,
+        }
+    }
 }
 
 struct Node {
@@ -446,13 +495,63 @@ impl ops::Not for Variable {
 
 struct Function {
     name: Token,
-    nparams: usize,
+    params: Vec<Token>,
     root: Node,
+    line: usize,
+}
+
+struct Program {
+    funcs: HashMap<Token, Function>,
 }
 
 struct RunInstance<'a> {
+    prog: &'a Program,
     func: &'a Function,
-    params: Vec<Token>,
+    scope: HashMap<Token, Variable>,
+}
+
+fn run_program(content: &str) -> Result<i32, Error> {
+    // parse file for functions
+    let mut state = State {
+        lines: content.split('\n').collect(),
+        ptr: 0,
+    };
+    let node = parse_node(&mut state, "")?;
+    // check for wild statements at global scope and construct program
+    let mut prog = Program {
+        funcs: HashMap::new(),
+    };
+    for stmt in node.stmts {
+        if let Statement::Func {
+            name,
+            params,
+            child,
+            line,
+        } = stmt
+        {
+            if prog.funcs.contains_key(&name) {
+                return Err(Error::DuplicateToken {
+                    line,
+                    value: name.value,
+                });
+            }
+            prog.funcs.insert(
+                Token {
+                    value: String::from(&name.value),
+                },
+                Function {
+                    name,
+                    params,
+                    root: child,
+                    line,
+                },
+            );
+        } else {
+            return Err(Error::WildStatement { line: stmt.line() });
+        }
+    }
+    // call for execution
+    Ok(0)
 }
 
 fn main() {
@@ -463,21 +562,20 @@ fn main() {
         eprintln!("intepretation terminated.");
         return;
     }
-    let contents;
-    match fs::read_to_string(&args[1]) {
-        Ok(v) => contents = v,
+    let filename = &args[1];
+    let content;
+    match fs::read_to_string(&filename) {
+        Ok(v) => content = v,
         Err(_) => {
-            eprintln!("nhotyp: fatal error: {}: cannot read file", &args[1]);
+            eprintln!("nhotyp: fatal error: {}: cannot read file", &filename);
             eprintln!("nhotyp: fatal error: no input files");
             eprintln!("interpretation terminated.");
             return;
         }
     }
-    // parse program
-    let mut state = State {
-        lines: contents.split('\n').collect(),
-        ptr: 0,
-    };
-    let node = parse_node(&mut state, "").unwrap();
-    println!("read ok");
+    // parse and execute
+    match run_program(&content) {
+        Ok(v) => (),
+        Err(err) => eprintln!("{}:{}: error: {}", &args[1], err.line(), err.format()),
+    }
 }
