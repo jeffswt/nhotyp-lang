@@ -1,12 +1,16 @@
 use std::env;
-use std::fs;
-
 use std::error::Error as StdError;
 use std::fmt;
+use std::fs;
+use std::ops;
+
+///////////////////////////////////////////////////////////////////////////////
+/// Error handling
 
 #[derive(PartialEq, Eq)]
 enum Error {
     IllegalChar { line: usize, value: char },
+    TokenTooLong { line: usize, value: usize },
     UnknownExpr { line: usize, value: String },
     MalformedAssign { line: usize },
     MalformedCond { line: usize },
@@ -17,9 +21,10 @@ enum Error {
 }
 
 impl Error {
-    pub fn debug(&self) -> &str {
+    pub fn debug(&self) -> String {
         match self {
             Self::IllegalChar { line, value } => format!("IllegalChar({}, {:?})", line, value),
+            Self::TokenTooLong { line, value } => format!("TokenTooLong({}, {})", line, value),
             Self::UnknownExpr { line, value } => format!("UnknownExpr({}, {:?})", line, value),
             Self::MalformedAssign { line } => format!("MalformedAssign({})", line),
             Self::MalformedCond { line } => format!("MalformedCond({})", line),
@@ -30,10 +35,13 @@ impl Error {
         }
     }
 
-    pub fn format(&self) -> &str {
+    pub fn format(&self) -> String {
         match self {
             Self::IllegalChar { line, value } => {
                 format!("unexpected character {:?} at line {}", value, line)
+            }
+            Self::TokenTooLong { line, value } => {
+                format!("token length exceeded ({} of 63) at line {}", value, line)
             }
             Self::UnknownExpr { line, value } => {
                 format!("unexpected statement token {:?} at line {})", value, line)
@@ -62,19 +70,19 @@ impl Error {
 
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.debug())
+        f.write_str(&self.debug())
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.format())
+        f.write_str(&self.format())
     }
 }
 
 impl StdError for Error {
     fn description(&self) -> &str {
-        self.debug()
+        &self.debug()
     }
 
     fn cause(&self) -> Option<&dyn StdError> {
@@ -82,12 +90,21 @@ impl StdError for Error {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// Tokens and Expressions
+
 struct Token {
     value: String,
 }
 
 impl Token {
     fn from(s: &str, ptr: usize, allow_const: bool) -> Result<Self, Error> {
+        if s.len() > 63 {
+            return Err(Error::TokenTooLong {
+                line: ptr,
+                value: s.len(),
+            });
+        }
         let x: Vec<_> = s
             .chars()
             .filter(|c| match c {
@@ -125,6 +142,9 @@ impl Token {
 struct Expr {
     tokens: Vec<Token>,
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// Statements and Nodes
 
 enum Statement {
     Assign {
@@ -326,6 +346,110 @@ pub fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
     }
     // done node parsing
     Ok(Node { stmts })
+}
+
+///////////////////////////////////////////////////////////////////////////////
+/// Variables
+
+const variable_limit: i128 = 0x1_0000_0000_0000;
+const variable_limit_half: i128 = 0x8000_0000_0000;
+
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+struct Variable {
+    data: i128,
+}
+
+impl Variable {
+    fn from(val: i128) -> Self {
+        if val > 0 {
+            val = val & (variable_limit - 1);
+        } else if val < 0 {
+        }
+        Self { data: val }
+    }
+}
+
+impl ops::Add for Variable {
+    type Output = Self;
+    fn add(self, other: Self) -> Self::Output {
+        Self::from(self.data + other.data)
+    }
+}
+
+impl ops::Sub for Variable {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self::Output {
+        Self::from(self.data - other.data)
+    }
+}
+
+impl ops::Mul for Variable {
+    type Output = Self;
+    fn mul(self, other: Self) -> Self::Output {
+        Self::from(self.data * other.data)
+    }
+}
+
+impl ops::Rem for Variable {
+    type Output = Self;
+    fn rem(self, other: Self) -> Self::Output {
+        let a = self.data;
+        let b = other.data.abs();
+        Self::from(match a > 0 {
+            true => a % b,
+            false => (b - (-a) % b) % b,
+        })
+    }
+}
+
+impl ops::Div for Variable {
+    type Output = Self;
+    fn div(self, other: Self) -> Self::Output {
+        let b = other.data.abs();
+        Self::from((self % other).data / b)
+    }
+}
+
+impl ops::BitAnd for Variable {
+    type Output = bool;
+    fn bitand(self, other: Self) -> bool {
+        self.data != 0 && other.data != 0
+    }
+}
+
+impl ops::BitOr for Variable {
+    type Output = bool;
+    fn bitor(self, other: Self) -> bool {
+        self.data != 0 || other.data != 0
+    }
+}
+
+impl ops::BitXor for Variable {
+    type Output = bool;
+    fn bitxor(self, other: Self) -> bool {
+        (self.data != 0) ^ (other.data != 0)
+    }
+}
+
+impl ops::Not for Variable {
+    type Output = bool;
+    fn not(self) -> bool {
+        self.data == 0
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+/// Program execution
+
+struct Function {
+    name: Token,
+    nparams: usize,
+    root: Node,
+}
+
+struct RunInstance<'a> {
+    func: &'a Function,
+    params: Vec<Token>,
 }
 
 fn main() {
