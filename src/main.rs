@@ -82,7 +82,7 @@ impl fmt::Display for Error {
 
 impl StdError for Error {
     fn description(&self) -> &str {
-        &self.debug()
+        "ParserError"
     }
 
     fn cause(&self) -> Option<&dyn StdError> {
@@ -109,7 +109,8 @@ impl Token {
             .chars()
             .filter(|c| match c {
                 '0'..='9' => !allow_const,
-                '-' => !allow_const,
+                '<' | '=' | '>' => !allow_const,
+                '+' | '-' | '*' | '%' | '/' => !allow_const,
                 'a'..='z' => false,
                 '_' => false,
                 _ => true,
@@ -189,7 +190,7 @@ struct State<'a> {
 
 type StmtParseResult = Result<Statement, Error>;
 
-pub fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // let <variable> = <expression>
     let len = words.len();
     if len < 4 {
@@ -207,7 +208,7 @@ pub fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResul
     })
 }
 
-pub fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // if <expression> then
     //     <code block>
     // end if
@@ -229,7 +230,7 @@ pub fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     })
 }
 
-pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // while <expression> do
     //     <code block>
     // end while
@@ -251,7 +252,7 @@ pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     })
 }
 
-pub fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // print <var1> <var2> ... <varn>
     // allows 0 variables
     let mut vars = vec![];
@@ -264,7 +265,7 @@ pub fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult
     })
 }
 
-pub fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // return <expression>
     let len = words.len();
     if len < 2 {
@@ -280,7 +281,7 @@ pub fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     })
 }
 
-pub fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // function <name> <param1> <param2> ... <paramn> as
     //     <code block>
     // end function
@@ -299,19 +300,19 @@ pub fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     Ok(Statement::Func {
         name,
         params,
-        child: parse_node(&mut state, "function")?,
+        child: parse_node(state, "function")?,
         line: state.ptr,
     })
 }
 
-pub fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     match words[0] {
-        "let" => parse_stmt_assign(&mut state, &words),
-        "if" => parse_stmt_cond(&mut state, &words),
-        "while" => parse_stmt_loop(&mut state, &words),
-        "print" => parse_stmt_print(&mut state, &words),
-        "return" => parse_stmt_ret(&mut state, &words),
-        "function" => parse_stmt_func(&mut state, &words),
+        "let" => parse_stmt_assign(state, &words),
+        "if" => parse_stmt_cond(state, &words),
+        "while" => parse_stmt_loop(state, &words),
+        "print" => parse_stmt_print(state, &words),
+        "return" => parse_stmt_ret(state, &words),
+        "function" => parse_stmt_func(state, &words),
         _ => Err(Error::UnknownExpr {
             line: state.ptr,
             value: String::from(words[0].to_string()),
@@ -319,12 +320,13 @@ pub fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     }
 }
 
-pub fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
+fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
     let mut stmts = vec![];
     // splitting words here to check for terminations
     while state.ptr < state.lines.len() {
         // eradicate comments
         let mut line = String::from(state.lines[state.ptr]);
+        state.ptr += 1;
         if line.contains('#') {
             let splits: Vec<_> = line.split('#').collect();
             line = String::from(splits[0]);
@@ -342,7 +344,7 @@ pub fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
             return Err(Error::MalformedEnd { line: state.ptr });
         }
         // send statement to corresponding parser
-        stmts.push(parse_stmt(&mut state, &words)?);
+        stmts.push(parse_stmt(state, &words)?);
     }
     // done node parsing
     Ok(Node { stmts })
@@ -351,8 +353,8 @@ pub fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
 ///////////////////////////////////////////////////////////////////////////////
 /// Variables
 
-const variable_limit: i128 = 0x1_0000_0000_0000;
-const variable_limit_half: i128 = 0x8000_0000_0000;
+const VARIABLE_LIMIT: i128 = 0x1_0000_0000_0000;
+const VARIABLE_LIMIT_HALF: i128 = 0x8000_0000_0000;
 
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 struct Variable {
@@ -361,11 +363,12 @@ struct Variable {
 
 impl Variable {
     fn from(val: i128) -> Self {
-        if val > 0 {
-            val = val & (variable_limit - 1);
-        } else if val < 0 {
+        let mut data = val;
+        if data > 0 {
+            data = data & (VARIABLE_LIMIT - 1);
+        } else if data < 0 {
         }
-        Self { data: val }
+        Self { data }
     }
 }
 
@@ -471,10 +474,10 @@ fn main() {
         }
     }
     // parse program
-    let state = State {
+    let mut state = State {
         lines: contents.split('\n').collect(),
         ptr: 0,
     };
-    let node = parse_node(&mut state, "");
+    let node = parse_node(&mut state, "").unwrap();
     println!("read ok");
 }
