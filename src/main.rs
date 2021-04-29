@@ -10,6 +10,7 @@ enum Error {
     UnknownExpr { line: usize, value: String },
     MalformedAssign { line: usize },
     MalformedCond { line: usize },
+    MalformedLoop { line: usize },
 }
 
 impl Error {
@@ -19,6 +20,7 @@ impl Error {
             Self::UnknownExpr { line, value } => format!("UnknownExpr({}, {:?})", line, value),
             Self::MalformedAssign { line } => format!("MalformedAssign({})", line),
             Self::MalformedCond { line } => format!("MalformedCond({})", line),
+            Self::MalformedLoop { line } => format!("MalformedLoop({})", line),
         }
     }
 
@@ -35,6 +37,9 @@ impl Error {
             }
             Self::MalformedCond { line } => {
                 format!("malformed conditional statement at line {})", line)
+            }
+            Self::MalformedLoop { line } => {
+                format!("malformed loop statement at line {})", line)
             }
         }
     }
@@ -177,6 +182,27 @@ pub fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult 
     Ok(Some(Statement::Cond {
         expr: Expr { tokens },
         child: parse_node(state, "if")?,
+    }))
+}
+
+pub fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
+    // while <expression> do
+    //     <code block>
+    // end while
+    let len = words.len();
+    if words.len() < 3 || words[len - 1] != "do" {
+        return Err(Error::MalformedLoop { line: state.ptr });
+    }
+    // generate expression
+    let mut tokens = vec![];
+    for i in 1..len - 1 {
+        tokens.push(Token::from_any(state, words[i])?);
+    }
+    // get child node
+    state.ptr += 1;
+    Ok(Some(Statement::Loop {
+        expr: Expr { tokens },
+        child: parse_node(state, "while")?,
     }))
 }
 
