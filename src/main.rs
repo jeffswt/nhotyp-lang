@@ -22,9 +22,8 @@ enum Error {
     DuplicateToken { line: usize, value: String },
     WildStatement { line: usize },
     WildFunction { line: usize },
-    MissingMain,
     MisplacedRet { line: usize },
-    UndeclaredVar { line: usize, value: String },
+    UndeclaredToken { line: usize, value: String },
 }
 
 impl Error {
@@ -44,9 +43,8 @@ impl Error {
             }
             Self::WildStatement { line } => format!("WildStatement({})", line),
             Self::WildFunction { line } => format!("WildFunction({})", line),
-            Self::MissingMain => format!("MissingMain"),
             Self::MisplacedRet { line } => format!("MisplacedRet({})", line),
-            Self::UndeclaredVar { line, value } => format!("UndeclaredVar({}, {})", line, value),
+            Self::UndeclaredToken { line, value } => format!("UndeclaredToken({}, {})", line, value),
         }
     }
 
@@ -88,12 +86,11 @@ impl Error {
             Self::WildFunction { .. } => {
                 format!("function should not appear in functions")
             }
-            Self::MissingMain { .. } => format!("missing main function"),
             Self::MisplacedRet { .. } => {
                 format!("always return at end of function")
             }
-            Self::UndeclaredVar { value, .. } => {
-                format!("variable {:?} undeclared", value)
+            Self::UndeclaredToken { value, .. } => {
+                format!("token {:?} undeclared", value)
             }
         }
     }
@@ -112,9 +109,8 @@ impl Error {
             Self::DuplicateToken { line, .. } => *line,
             Self::WildStatement { line, .. } => *line,
             Self::WildFunction { line, .. } => *line,
-            Self::MissingMain => 0,
             Self::MisplacedRet { line, .. } => *line,
-            Self::UndeclaredVar { line, .. } => *line,
+            Self::UndeclaredToken { line, .. } => *line,
         }
     }
 }
@@ -576,10 +572,8 @@ fn eval_expr(instance: &mut RunInstance, expr: &Expr) -> Result<Variable, Error>
 }
 
 fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Error> {
-    println!("on statement line:{}", stmt.line());
     match &stmt {
         &Statement::Assign { var, expr, .. } => {
-            println!("assigning");
             let res = eval_expr(instance, &expr)?;
             instance.scope.insert(var.clone(), res);
         }
@@ -599,13 +593,13 @@ fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Er
         &Statement::Print { vars, line } => {
             for var in vars {
                 if !instance.scope.contains_key(var) {
-                    return Err(Error::UndeclaredVar {
+                    return Err(Error::UndeclaredToken {
                         line: *line,
                         value: String::from(&var.value),
                     });
                 }
                 let val = &instance.scope[&var];
-                println!("> {}", val.data);
+                println!(">>> {}", val.data);
             }
         }
         &Statement::Ret { line, .. } => return Err(Error::MisplacedRet { line: *line }),
@@ -625,9 +619,18 @@ fn exec_node(instance: &mut RunInstance, node: &Node) -> Result<(), Error> {
 
 fn call_function(
     prog: &Program,
-    func: &Function,
+    token: &Token,
     params: Vec<&Variable>,
+    from_line: usize,
 ) -> Result<Variable, Error> {
+    // lookup function
+    if !prog.funcs.contains_key(&token) {
+        return Err(Error::UndeclaredToken{
+            line: from_line,
+            value: String::from(&token.value),
+        });
+    }
+    let func = &prog.funcs[&token];
     // generate instance
     let scope = HashMap::new();
     let mut instance = RunInstance { prog, func, scope };
@@ -659,7 +662,6 @@ fn run_program(content: &str) -> Result<i64, Error> {
         ptr: 0,
     };
     let node = parse_node(&mut state, "")?;
-    println!("{:?}", node);
     // check for wild statements at global scope and construct program
     let mut prog = Program {
         funcs: HashMap::new(),
@@ -697,12 +699,7 @@ fn run_program(content: &str) -> Result<i64, Error> {
     let main_token = Token {
         value: String::from("main"),
     };
-    let main_func = if let Some(v) = prog.funcs.get(&main_token) {
-        v
-    } else {
-        return Err(Error::MissingMain);
-    };
-    Ok(call_function(&prog, main_func, vec![])?.data as i64)
+    Ok(call_function(&prog, &main_token, vec![], 0)?.data as i64)
 }
 
 fn main() {
