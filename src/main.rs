@@ -23,6 +23,8 @@ enum Error {
     WildStatement { line: usize },
     WildFunction { line: usize },
     MissingMain,
+    MisplacedRet { line: usize },
+    UndeclaredVar { line: usize, value: String },
 }
 
 impl Error {
@@ -43,6 +45,8 @@ impl Error {
             Self::WildStatement { line } => format!("WildStatement({})", line),
             Self::WildFunction { line } => format!("WildFunction({})", line),
             Self::MissingMain => format!("MissingMain"),
+            Self::MisplacedRet { line } => format!("MisplacedRet({})", line),
+            Self::UndeclaredVar { line, value } => format!("UndeclaredVar({}, {})", line, value),
         }
     }
 
@@ -85,6 +89,12 @@ impl Error {
                 format!("function should not appear in functions")
             }
             Self::MissingMain { .. } => format!("missing main function"),
+            Self::MisplacedRet { .. } => {
+                format!("always return at end of function")
+            }
+            Self::UndeclaredVar { value, .. } => {
+                format!("variable {:?} undeclared", value)
+            }
         }
     }
 
@@ -103,6 +113,8 @@ impl Error {
             Self::WildStatement { line, .. } => *line,
             Self::WildFunction { line, .. } => *line,
             Self::MissingMain => 0,
+            Self::MisplacedRet { line, .. } => *line,
+            Self::UndeclaredVar { line, .. } => *line,
         }
     }
 }
@@ -174,9 +186,13 @@ impl Token {
     pub fn from_var(state: &mut State, s: &str) -> Result<Self, Error> {
         Self::from(s, state.ptr, false)
     }
+}
 
-    pub fn to_string(&self) -> &str {
-        &self.value
+impl Clone for Token {
+    fn clone(&self) -> Self {
+        Self {
+            value: String::from(&self.value),
+        }
     }
 }
 
@@ -407,9 +423,8 @@ fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
 /// Variables
 
 const VARIABLE_LIMIT: i128 = 0x1_0000_0000_0000;
-const VARIABLE_LIMIT_HALF: i128 = 0x8000_0000_0000;
 
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone)]
 struct Variable {
     data: i128,
 }
@@ -514,8 +529,85 @@ struct RunInstance<'a> {
     scope: HashMap<Token, Variable>,
 }
 
-fn call_function(func: &Function, params: Vec<Variable>) -> Result<Variable, Error> {
+fn eval_expr(instance: &mut RunInstance, expr: &Expr) -> Result<Variable, Error> {
     Ok(Variable::from(0))
+}
+
+fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Error> {
+    println!("on statement line:{}", stmt.line());
+    match &stmt {
+        &Statement::Assign { var, expr, .. } => {
+            println!("assigning");
+            let res = eval_expr(instance, &expr)?;
+            instance.scope.insert(var.clone(), res);
+        }
+        &Statement::Cond { expr, child, .. } => {
+            let cond = eval_expr(instance, &expr)?;
+            if cond.data != 0 {
+                exec_node(instance, &child)?;
+            }
+        }
+        &Statement::Loop { expr, child, .. } => loop {
+            let cond = eval_expr(instance, &expr)?;
+            if cond.data == 0 {
+                break;
+            }
+            exec_node(instance, &child)?;
+        },
+        &Statement::Print { vars, line } => {
+            for var in vars {
+                if !instance.scope.contains_key(var) {
+                    return Err(Error::UndeclaredVar {
+                        line: *line,
+                        value: String::from(&var.value),
+                    });
+                }
+                let val = &instance.scope[&var];
+                println!("> {}", val.data);
+            }
+        }
+        &Statement::Ret { line, .. } => return Err(Error::MisplacedRet { line: *line }),
+        &Statement::Func { line, .. } => return Err(Error::WildFunction { line: *line }),
+    }
+    Ok(())
+}
+
+fn exec_node(instance: &mut RunInstance, node: &Node) -> Result<(), Error> {
+    for stmt in &node.stmts {
+        match stmt {
+            _ => exec_statement(instance, &stmt)?,
+        }
+    }
+    Ok(())
+}
+
+fn call_function(
+    prog: &Program,
+    func: &Function,
+    params: Vec<&Variable>,
+) -> Result<Variable, Error> {
+    // generate instance
+    let scope = HashMap::new();
+    let mut instance = RunInstance { prog, func, scope };
+    // put parameters into scope
+    for i in 0..params.len() {
+        let key = func.params[i].clone();
+        let value = params[i].clone();
+        instance.scope.insert(key, value);
+    }
+    // iterate function statements
+    let stmts = &func.root.stmts;
+    if stmts.len() < 1 {
+        return Err(Error::MisplacedRet { line: func.line });
+    }
+    for i in 0..stmts.len() - 1 {
+        exec_statement(&mut instance, &stmts[i])?;
+    }
+    // last statement must return value
+    match &stmts[stmts.len() - 1] {
+        Statement::Ret { expr, .. } => eval_expr(&mut instance, &expr),
+        _ => Err(Error::MisplacedRet { line: func.line }),
+    }
 }
 
 fn run_program(content: &str) -> Result<i64, Error> {
@@ -567,7 +659,7 @@ fn run_program(content: &str) -> Result<i64, Error> {
     } else {
         return Err(Error::MissingMain);
     };
-    Ok(call_function(main_func, vec![])?.data as i64)
+    Ok(call_function(&prog, main_func, vec![])?.data as i64)
 }
 
 fn main() {
