@@ -336,7 +336,6 @@ fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         tokens.push(Token::from_any(state, words[i])?);
     }
     // get child node
-    state.ptr += 1;
     Ok(Statement::Cond {
         expr: Expr { tokens },
         child: parse_node(state, "if")?,
@@ -358,7 +357,6 @@ fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         tokens.push(Token::from_any(state, words[i])?);
     }
     // get child node
-    state.ptr += 1;
     Ok(Statement::Loop {
         expr: Expr { tokens },
         child: parse_node(state, "while")?,
@@ -410,7 +408,6 @@ fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         params.push(Token::from_var(state, words[i])?);
     }
     // get child node
-    state.ptr += 1;
     Ok(Statement::Func {
         name,
         params,
