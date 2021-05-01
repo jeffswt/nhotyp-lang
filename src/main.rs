@@ -196,8 +196,20 @@ impl Clone for Token {
     }
 }
 
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.value)
+    }
+}
+
 struct Expr {
     tokens: Vec<Token>,
+}
+
+impl fmt::Debug for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}", self.tokens))
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -248,8 +260,41 @@ impl Statement {
     }
 }
 
+impl fmt::Debug for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Assign { var, expr, line } => {
+                f.write_fmt(format_args!("let({:?} <- {:?} @ {})", var, expr, line))
+            }
+            Self::Cond { expr, child, line } => {
+                f.write_fmt(format_args!("if({:?} => {:?} @ {})", expr, child, line))
+            }
+            Self::Loop { expr, child, line } => {
+                f.write_fmt(format_args!("while({:?} => {:?} @ {})", expr, child, line))
+            }
+            Self::Print { vars, line } => f.write_fmt(format_args!("print({:?} @ {})", vars, line)),
+            Self::Ret { expr, line } => f.write_fmt(format_args!("ret({:?} @ {})", expr, line)),
+            Self::Func {
+                name,
+                params,
+                child,
+                line,
+            } => f.write_fmt(format_args!(
+                "def({:?} -> {:?} => {:?} @ {})",
+                name, params, child, line
+            )),
+        }
+    }
+}
+
 struct Node {
     stmts: Vec<Statement>,
+}
+
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}", self.stmts))
+    }
 }
 
 struct State<'a> {
@@ -617,6 +662,7 @@ fn run_program(content: &str) -> Result<i64, Error> {
         ptr: 0,
     };
     let node = parse_node(&mut state, "")?;
+    println!("{:?}", node);
     // check for wild statements at global scope and construct program
     let mut prog = Program {
         funcs: HashMap::new(),
