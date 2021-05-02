@@ -416,7 +416,18 @@ fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     let name = Token::from_var(state.ptr, words[1])?;
     let mut params = vec![];
     for i in 2..len - 1 {
-        params.push(Token::from_var(state.ptr, words[i])?);
+        let token = Token::from_var(state.ptr, words[i])?;
+        if is_reserved_kw(&token.value) {
+            return Err(Error::DuplicateToken {
+                line: state.ptr,
+                value: token.value,
+            });
+        }
+        params.push(token);
+    }
+    // too many parameters
+    if params.len() > 16 {
+        return Err(Error::MalformedFunc { line: state.ptr });
     }
     // get child node
     Ok(Statement::Func {
@@ -682,9 +693,28 @@ fn eval_expr(instance: &mut RunInstance, expr: &Expr, from_line: usize) -> Resul
     Ok(res)
 }
 
+fn is_reserved_kw(token: &str) -> bool {
+    match token {
+        "and" | "or" | "xor" | "not" | "scan" => true,
+        "let" => true,
+        "if" | "then" => true,
+        "while" | "do" => true,
+        "function" | "as" | "return" => true,
+        "end" => true,
+        "print" => true,
+        _ => false,
+    }
+}
+
 fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Error> {
     match &stmt {
         &Statement::Assign { var, expr, line } => {
+            if is_reserved_kw(&var.value) || instance.prog.funcs.contains_key(&var) {
+                return Err(Error::DuplicateToken {
+                    line: *line,
+                    value: String::from(&var.value),
+                });
+            }
             let res = eval_expr(instance, &expr, *line)?;
             instance.scope.insert(var.clone(), res);
         }
@@ -752,6 +782,12 @@ fn call_function(
     for i in 0..params.len() {
         let key = func.params[i].clone();
         let value = params[i].clone();
+        if prog.funcs.contains_key(&key) {
+            return Err(Error::DuplicateToken {
+                line: func.line,
+                value: key.value,
+            });
+        }
         instance.scope.insert(key, value);
     }
     // iterate function statements
@@ -788,7 +824,7 @@ fn run_program(content: &str) -> Result<i64, Error> {
             line,
         } = stmt
         {
-            if prog.funcs.contains_key(&name) {
+            if is_reserved_kw(&name.value) || prog.funcs.contains_key(&name) {
                 return Err(Error::DuplicateToken {
                     line,
                     value: name.value,
