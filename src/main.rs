@@ -3,6 +3,7 @@ use std::env;
 use std::error::Error as StdError;
 use std::fmt;
 use std::fs;
+use std::io::Write;
 use std::ops;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -25,6 +26,7 @@ enum Error {
     MisplacedRet { line: usize },
     UndeclaredToken { line: usize, value: String },
     BadExpression { line: usize },
+    InputError { line: usize, value: String },
 }
 
 impl Error {
@@ -49,6 +51,7 @@ impl Error {
                 format!("UndeclaredToken({}, {})", line, value)
             }
             Self::BadExpression { line } => format!("BadExpression({})", line),
+            Self::InputError { line, value } => format!("InputError({}, {:?})", line, value),
         }
     }
 
@@ -97,7 +100,10 @@ impl Error {
                 format!("token {:?} undeclared", value)
             }
             Self::BadExpression { .. } => {
-                format!("expression missing operators")
+                format!("expression having misplaced tokens")
+            }
+            Self::InputError { value, .. } => {
+                format!("invalid input {:?}", value)
             }
         }
     }
@@ -119,6 +125,7 @@ impl Error {
             Self::MisplacedRet { line, .. } => *line,
             Self::UndeclaredToken { line, .. } => *line,
             Self::BadExpression { line, .. } => *line,
+            Self::InputError { line, .. } => *line,
         }
     }
 }
@@ -565,7 +572,6 @@ impl fmt::Debug for Variable {
 /// Program execution
 
 struct Function {
-    name: Token,
     params: Vec<Token>,
     root: Node,
     line: usize,
@@ -577,7 +583,6 @@ struct Program {
 
 struct RunInstance<'a> {
     prog: &'a Program,
-    func: &'a Function,
     scope: HashMap<Token, Variable>,
 }
 
@@ -631,9 +636,20 @@ fn eval_expr_func(
     let is = |i: usize| -> bool { v[i].data != 0 };
     Ok(match op_token {
         "scan" => {
-            let mut line = String::new();
-            std::io::stdin().read_line(&mut line).unwrap();
-            Variable::from(line.trim().parse().unwrap())
+            let mut inp = String::new();
+            print!(">>> ");
+            std::io::stdout().flush().expect("unable to flush stdout");
+            if let Err(_) = std::io::stdin().read_line(&mut inp) {
+                return Err(Error::InputError {
+                    line,
+                    value: String::from("null"),
+                });
+            }
+            inp = String::from(inp.trim());
+            match inp.parse() {
+                Ok(v) => Variable::from(v),
+                Err(_) => return Err(Error::InputError { line, value: inp }),
+            }
         }
         "+" => v[0] + v[1],
         "-" => v[0] - v[1],
@@ -659,7 +675,11 @@ fn eval_expr_func(
 
 fn eval_expr(instance: &mut RunInstance, expr: &Expr, from_line: usize) -> Result<Variable, Error> {
     let mut ptr = 0;
-    eval_expr_func(instance, expr, &mut ptr, from_line)
+    let res = eval_expr_func(instance, expr, &mut ptr, from_line)?;
+    if ptr + 1 < expr.tokens.len() {
+        return Err(Error::BadExpression { line: from_line });
+    }
+    Ok(res)
 }
 
 fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Error> {
@@ -682,6 +702,7 @@ fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Er
             exec_node(instance, &child)?;
         },
         &Statement::Print { vars, line } => {
+            print!("...");
             for var in vars {
                 if !instance.scope.contains_key(var) {
                     return Err(Error::UndeclaredToken {
@@ -690,8 +711,10 @@ fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Er
                     });
                 }
                 let val = &instance.scope[&var];
-                println!(">>> {}", val.data);
+                print!(" {}", val.data);
             }
+            println!("");
+            std::io::stdout().flush().expect("unable to flush stdout");
         }
         &Statement::Ret { line, .. } => return Err(Error::MisplacedRet { line: *line }),
         &Statement::Func { line, .. } => return Err(Error::WildFunction { line: *line }),
@@ -724,7 +747,7 @@ fn call_function(
     let func = &prog.funcs[&token];
     // generate instance
     let scope = HashMap::new();
-    let mut instance = RunInstance { prog, func, scope };
+    let mut instance = RunInstance { prog, scope };
     // put parameters into scope
     for i in 0..params.len() {
         let key = func.params[i].clone();
@@ -776,7 +799,6 @@ fn run_program(content: &str) -> Result<i64, Error> {
                     value: String::from(&name.value),
                 },
                 Function {
-                    name,
                     params,
                     root: child,
                     line,
