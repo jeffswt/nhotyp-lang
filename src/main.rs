@@ -555,6 +555,12 @@ impl ops::Not for Variable {
     }
 }
 
+impl fmt::Debug for Variable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}", self.data))
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Program execution
 
@@ -594,14 +600,24 @@ fn eval_expr_func(
         "and" | "or" | "xor" => 2,
         "not" => 1,
         _ => {
+            // parse constant first
+            if let Ok(v) = op_token.parse() {
+                return Ok(Variable::from(v));
+            }
             let token = Token::from_var(line, op_token)?;
-            if !instance.prog.funcs.contains_key(&token) {
+            if instance.scope.contains_key(&token) {
+                // variable takes precedence
+                return Ok(instance.scope[&token].clone());
+            } else if instance.prog.funcs.contains_key(&token) {
+                // then attempt to call function
+                instance.prog.funcs[&token].params.len()
+            } else {
+                // and nothing else
                 return Err(Error::UndeclaredToken {
                     line: line,
                     value: String::from(&token.value),
                 });
             }
-            instance.prog.funcs[&token].params.len()
         }
     };
     // parse parameters
