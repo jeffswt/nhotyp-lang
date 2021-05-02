@@ -234,8 +234,8 @@ As we've introduced all definitions, operators and statements, we can finally pr
               | <loop-statement>
               | <print-statement>
 <code-block> ::= <statement>
-			  | <code-block>
-			    <statement>
+               | <code-block>
+                 <statement>
 <program> ::= <function-block>
             | <program>
               <function-block>
