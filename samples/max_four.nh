@@ -1,0 +1,23 @@
+
+function max_four a b c d as
+    if > b a then
+        let a = b
+    end if
+    if > c a then
+        let a = c
+    end if
+    if > d a then
+        let a = d
+    end if
+    return a
+end function
+
+function main as
+    let vara = scan
+    let varb = scan
+    let varc = scan
+    let vard = scan
+    let mx = max_four vara varb varc vard
+    print vara varb varc vard mx
+    return 0
+end function

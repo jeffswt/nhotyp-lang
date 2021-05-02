@@ -1,0 +1,22 @@
+
+# calculates a to the power of b
+function fastpow a b as
+    let res = 1
+    let tmp = a
+    while > b 0 do
+        if == % b 2 1 then
+            let res = * res tmp
+        end if
+        let tmp = * tmp tmp
+        let b = / b 2
+    end while
+    return res
+end function
+
+function main as
+    let a = scan
+    let b = scan
+    let c = fastpow a b
+    print a b c
+    return 0
+end function
