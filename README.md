@@ -71,13 +71,15 @@ There are a few built-in operators which functions mostly like they do in C++ / 
 * Addition `+`: Accepts 2 parameters, yields sum of the two. Handle overflow when needed.
 * Subtraction `-`: Accepts 2 parameters, yields the first subtracted by the second. Handle overflow when needed. Example: `- 17 12 = 5`
 * Multiplication `*`: Accepts 2 parameters, yields the product of the two. Proper handle of overflow is required. Example: `* 16 -3 = -48`
-* Remainder `%`: Accepts 2 parameters *a* and *b*, yields the smallest non-negative integer *k* where *a = |b|p + k*, such that p is an integer. Examples:
+* Remainder `%`: Accepts 2 parameters *a* and *b*, yields the smallest non-negative integer *k* where *a = |b|p + k*, such that p is an integer. Result is always 0 when *b* is 0. Examples:
   *  `% 27 4 = 3`, because 27 = 4 * 6 + 3
   * `% -18 5 = 2`, because -18 = 5 * (-4) + 2
   * `% 36 -7 = 1`, because 36 = |-7| * 5 + 1
-* Division `/`: Accepts 2 parameters *a* and *b*, yields `(a - a % b) / |b|`, where a subtracted by the remainder is guaranteed to be divisible by |b|. Examples:
+  * `% 7 0 = 0`, this is a defined behavior
+* Division `/`: Accepts 2 parameters *a* and *b*, yields `(a - a % b) / |b|`, where a subtracted by the remainder is guaranteed to be divisible by |b|. Division by 0 yields 0 anyway. Examples:
   * `/ 9 4 = 2`, which is the same as in C
   * `/ -2 -7 = -1`, because the remainder is 5
+  * `/ 0 0 = 0` and `/ 6 0 = 0`, because division by 0 yields 0 always
 * Equality `==`: Compares the 2 parameters, returns 1 if equal, 0 otherwise
 * Less `<`: Compares the 2 parameters, returns 1 if the latter is greater, 0 otherwise
 * Greater `>`: Compares the 2 parameters, returns 1 if the former is greater, 0 otherwise
@@ -254,4 +256,5 @@ A deprecated Chinese version of the specification is available at `README_zh.md`
 * Ignoring the error handling part will shorten your code for at least 50%.
 * The size of all documentations summed up surpasses that of the interpreter itself.
 * Nhotyp actually took its inspiration from Python, Rust and Pascal.
+* It should have an interactive terminal, but it's not currently on the todo list.
 

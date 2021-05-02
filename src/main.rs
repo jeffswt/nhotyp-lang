@@ -530,6 +530,9 @@ impl ops::Rem for Variable {
     fn rem(self, other: Self) -> Self::Output {
         let a = self.data;
         let b = other.data.abs();
+        if b == 0 {
+            return Self::from(0);
+        }
         Self::from(match a > 0 {
             true => a % b,
             false => (b - (-a) % b) % b,
@@ -541,7 +544,10 @@ impl ops::Div for Variable {
     type Output = Self;
     fn div(self, other: Self) -> Self::Output {
         let b = other.data.abs();
-        Self::from((self % other).data / b)
+        if b == 0 {
+            return Self::from(0);
+        }
+        Self::from((self - self % other).data / b)
     }
 }
 
