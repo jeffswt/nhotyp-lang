@@ -12,7 +12,7 @@ use std::ops;
 enum Error {
     IllegalChar { line: usize, value: char },
     TokenTooLong { line: usize, value: usize },
-    UnknownExpr { line: usize, value: String },
+    UnknownToken { line: usize, value: String },
     MalformedAssign { line: usize },
     MalformedCond { line: usize },
     MalformedLoop { line: usize },
@@ -24,6 +24,7 @@ enum Error {
     WildFunction { line: usize },
     MisplacedRet { line: usize },
     UndeclaredToken { line: usize, value: String },
+    BadExpression { line: usize },
 }
 
 impl Error {
@@ -31,7 +32,7 @@ impl Error {
         match self {
             Self::IllegalChar { line, value } => format!("IllegalChar({}, {:?})", line, value),
             Self::TokenTooLong { line, value } => format!("TokenTooLong({}, {})", line, value),
-            Self::UnknownExpr { line, value } => format!("UnknownExpr({}, {:?})", line, value),
+            Self::UnknownToken { line, value } => format!("UnknownToken({}, {:?})", line, value),
             Self::MalformedAssign { line } => format!("MalformedAssign({})", line),
             Self::MalformedCond { line } => format!("MalformedCond({})", line),
             Self::MalformedLoop { line } => format!("MalformedLoop({})", line),
@@ -44,7 +45,10 @@ impl Error {
             Self::WildStatement { line } => format!("WildStatement({})", line),
             Self::WildFunction { line } => format!("WildFunction({})", line),
             Self::MisplacedRet { line } => format!("MisplacedRet({})", line),
-            Self::UndeclaredToken { line, value } => format!("UndeclaredToken({}, {})", line, value),
+            Self::UndeclaredToken { line, value } => {
+                format!("UndeclaredToken({}, {})", line, value)
+            }
+            Self::BadExpression { line } => format!("BadExpression({})", line),
         }
     }
 
@@ -56,7 +60,7 @@ impl Error {
             Self::TokenTooLong { value, .. } => {
                 format!("token length exceeded ({} of 63)", value)
             }
-            Self::UnknownExpr { value, .. } => {
+            Self::UnknownToken { value, .. } => {
                 format!("unexpected statement token {:?}", value)
             }
             Self::MalformedAssign { .. } => {
@@ -92,6 +96,9 @@ impl Error {
             Self::UndeclaredToken { value, .. } => {
                 format!("token {:?} undeclared", value)
             }
+            Self::BadExpression { .. } => {
+                format!("expression missing operators")
+            }
         }
     }
 
@@ -99,7 +106,7 @@ impl Error {
         match self {
             Self::IllegalChar { line, .. } => *line,
             Self::TokenTooLong { line, .. } => *line,
-            Self::UnknownExpr { line, .. } => *line,
+            Self::UnknownToken { line, .. } => *line,
             Self::MalformedAssign { line, .. } => *line,
             Self::MalformedCond { line, .. } => *line,
             Self::MalformedLoop { line, .. } => *line,
@@ -111,6 +118,7 @@ impl Error {
             Self::WildFunction { line, .. } => *line,
             Self::MisplacedRet { line, .. } => *line,
             Self::UndeclaredToken { line, .. } => *line,
+            Self::BadExpression { line, .. } => *line,
         }
     }
 }
@@ -175,12 +183,12 @@ impl Token {
         }
     }
 
-    pub fn from_any(state: &mut State, s: &str) -> Result<Self, Error> {
-        Self::from(s, state.ptr, true)
+    pub fn from_any(ptr: usize, s: &str) -> Result<Self, Error> {
+        Self::from(s, ptr, true)
     }
 
-    pub fn from_var(state: &mut State, s: &str) -> Result<Self, Error> {
-        Self::from(s, state.ptr, false)
+    pub fn from_var(ptr: usize, s: &str) -> Result<Self, Error> {
+        Self::from(s, ptr, false)
     }
 }
 
@@ -306,10 +314,10 @@ fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     if len < 4 {
         return Err(Error::MalformedAssign { line: state.ptr });
     }
-    let var = Token::from_var(state, words[1])?;
+    let var = Token::from_var(state.ptr, words[1])?;
     let mut tokens = vec![];
     for i in 3..len {
-        tokens.push(Token::from_any(state, words[i])?);
+        tokens.push(Token::from_any(state.ptr, words[i])?);
     }
     Ok(Statement::Assign {
         var,
@@ -329,7 +337,7 @@ fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // generate expression
     let mut tokens = vec![];
     for i in 1..len - 1 {
-        tokens.push(Token::from_any(state, words[i])?);
+        tokens.push(Token::from_any(state.ptr, words[i])?);
     }
     // get child node
     Ok(Statement::Cond {
@@ -350,7 +358,7 @@ fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // generate expression
     let mut tokens = vec![];
     for i in 1..len - 1 {
-        tokens.push(Token::from_any(state, words[i])?);
+        tokens.push(Token::from_any(state.ptr, words[i])?);
     }
     // get child node
     Ok(Statement::Loop {
@@ -365,7 +373,7 @@ fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // allows 0 variables
     let mut vars = vec![];
     for i in 1..words.len() {
-        vars.push(Token::from_var(state, words[i])?);
+        vars.push(Token::from_var(state.ptr, words[i])?);
     }
     Ok(Statement::Print {
         vars,
@@ -381,7 +389,7 @@ fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     }
     let mut tokens = vec![];
     for i in 1..len {
-        tokens.push(Token::from_any(state, words[i])?);
+        tokens.push(Token::from_any(state.ptr, words[i])?);
     }
     Ok(Statement::Ret {
         expr: Expr { tokens },
@@ -398,10 +406,10 @@ fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         return Err(Error::MalformedFunc { line: state.ptr });
     }
     // parse parameters
-    let name = Token::from_var(state, words[1])?;
+    let name = Token::from_var(state.ptr, words[1])?;
     let mut params = vec![];
     for i in 2..len - 1 {
-        params.push(Token::from_var(state, words[i])?);
+        params.push(Token::from_var(state.ptr, words[i])?);
     }
     // get child node
     Ok(Statement::Func {
@@ -420,7 +428,7 @@ fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         "print" => parse_stmt_print(state, &words),
         "return" => parse_stmt_ret(state, &words),
         "function" => parse_stmt_func(state, &words),
-        _ => Err(Error::UnknownExpr {
+        _ => Err(Error::UnknownToken {
             line: state.ptr,
             value: String::from(words[0].to_string()),
         }),
@@ -462,7 +470,7 @@ fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
 
 const VARIABLE_LIMIT: i128 = 0x1_0000_0000_0000;
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 struct Variable {
     data: i128,
 }
@@ -567,24 +575,91 @@ struct RunInstance<'a> {
     scope: HashMap<Token, Variable>,
 }
 
-fn eval_expr(instance: &mut RunInstance, expr: &Expr) -> Result<Variable, Error> {
-    Ok(Variable::from(0))
+fn eval_expr_func(
+    instance: &mut RunInstance,
+    expr: &Expr,
+    ptr: &mut usize,
+    line: usize,
+) -> Result<Variable, Error> {
+    // detect out-of-bounds error
+    if *ptr >= expr.tokens.len() {
+        return Err(Error::BadExpression { line: line });
+    }
+    // retrieve function parameter count
+    let op_token: &str = &expr.tokens[*ptr].value;
+    let op_cnt = match op_token {
+        "scan" => 0,
+        "+" | "-" | "*" | "%" | "/" => 2,
+        "==" | "<" | ">" | "<=" | ">=" | "!=" => 2,
+        "and" | "or" | "xor" => 2,
+        "not" => 1,
+        _ => {
+            let token = Token::from_var(line, op_token)?;
+            if !instance.prog.funcs.contains_key(&token) {
+                return Err(Error::UndeclaredToken {
+                    line: line,
+                    value: String::from(&token.value),
+                });
+            }
+            instance.prog.funcs[&token].params.len()
+        }
+    };
+    // parse parameters
+    let mut params = vec![];
+    for _ in 0..op_cnt {
+        *ptr += 1;
+        params.push(eval_expr_func(instance, expr, ptr, line)?);
+    }
+    // evaluate result
+    let v = &params;
+    let is = |i: usize| -> bool { v[i].data != 0 };
+    Ok(match op_token {
+        "scan" => {
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line).unwrap();
+            Variable::from(line.trim().parse().unwrap())
+        }
+        "+" => v[0] + v[1],
+        "-" => v[0] - v[1],
+        "*" => v[0] * v[1],
+        "%" => v[0] % v[1],
+        "/" => v[0] / v[1],
+        "==" => Variable::from(if v[0] == v[1] { 1 } else { 0 }),
+        "<" => Variable::from(if v[0] < v[1] { 1 } else { 0 }),
+        ">" => Variable::from(if v[0] > v[1] { 1 } else { 0 }),
+        "<=" => Variable::from(if v[0] <= v[1] { 1 } else { 0 }),
+        ">=" => Variable::from(if v[0] >= v[1] { 1 } else { 0 }),
+        "!=" => Variable::from(if v[0] != v[1] { 1 } else { 0 }),
+        "and" => Variable::from(if is(0) && is(1) { 1 } else { 0 }),
+        "or" => Variable::from(if is(0) || is(1) { 1 } else { 0 }),
+        "xor" => Variable::from(if is(0) != is(1) { 1 } else { 0 }),
+        "not" => Variable::from(if is(0) { 0 } else { 1 }),
+        _ => {
+            let token = Token::from_var(line, op_token)?;
+            call_function(instance.prog, &token, params, line)?
+        }
+    })
+}
+
+fn eval_expr(instance: &mut RunInstance, expr: &Expr, from_line: usize) -> Result<Variable, Error> {
+    let mut ptr = 0;
+    eval_expr_func(instance, expr, &mut ptr, from_line)
 }
 
 fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Error> {
     match &stmt {
-        &Statement::Assign { var, expr, .. } => {
-            let res = eval_expr(instance, &expr)?;
+        &Statement::Assign { var, expr, line } => {
+            let res = eval_expr(instance, &expr, *line)?;
             instance.scope.insert(var.clone(), res);
         }
-        &Statement::Cond { expr, child, .. } => {
-            let cond = eval_expr(instance, &expr)?;
+        &Statement::Cond { expr, child, line } => {
+            let cond = eval_expr(instance, &expr, *line)?;
             if cond.data != 0 {
                 exec_node(instance, &child)?;
             }
         }
-        &Statement::Loop { expr, child, .. } => loop {
-            let cond = eval_expr(instance, &expr)?;
+        &Statement::Loop { expr, child, line } => loop {
+            let cond = eval_expr(instance, &expr, *line)?;
             if cond.data == 0 {
                 break;
             }
@@ -620,12 +695,12 @@ fn exec_node(instance: &mut RunInstance, node: &Node) -> Result<(), Error> {
 fn call_function(
     prog: &Program,
     token: &Token,
-    params: Vec<&Variable>,
+    params: Vec<Variable>,
     from_line: usize,
 ) -> Result<Variable, Error> {
     // lookup function
     if !prog.funcs.contains_key(&token) {
-        return Err(Error::UndeclaredToken{
+        return Err(Error::UndeclaredToken {
             line: from_line,
             value: String::from(&token.value),
         });
@@ -650,7 +725,7 @@ fn call_function(
     }
     // last statement must return value
     match &stmts[stmts.len() - 1] {
-        Statement::Ret { expr, .. } => eval_expr(&mut instance, &expr),
+        Statement::Ret { expr, .. } => eval_expr(&mut instance, &expr, from_line),
         _ => Err(Error::MisplacedRet { line: func.line }),
     }
 }
