@@ -976,6 +976,37 @@ fn execute_block(
     Ok(())
 }
 
+fn main_ii_show_copyright() -> () {
+    println!("Copyright (c) 2021 Geoffrey Tang");
+    println!("All lefts reversed.");
+    println!("");
+}
+
+fn main_ii_show_license() -> () {
+    println!("MIT License");
+    println!("");
+    println!("Copyright (c) 2021 Geoffrey Tang");
+    println!("");
+    println!("Permission is hereby granted, free of charge, to any person obtaining a copy");
+    println!("of this software and associated documentation files (the \"Software\"), to deal");
+    println!("in the Software without restriction, including without limitation the rights");
+    println!("to use, copy, modify, merge, publish, distribute, sublicense, and/or sell");
+    println!("copies of the Software, and to permit persons to whom the Software is");
+    println!("furnished to do so, subject to the following conditions:");
+    println!("");
+    println!("The above copyright notice and this permission notice shall be included in all");
+    println!("copies or substantial portions of the Software.");
+    println!("");
+    println!("THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR");
+    println!("IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,");
+    println!("FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE");
+    println!("AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER");
+    println!("LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,");
+    println!("OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE");
+    println!("SOFTWARE.");
+    println!("");
+}
+
 fn main_interactive_interpreter() -> () {
     // prepare interactive parsing
     // first empty line is magic, used to avoid -1 pointers
@@ -1007,6 +1038,14 @@ fn main_interactive_interpreter() -> () {
             break;
         }
         inp_line = String::from(inp_line.trim());
+        // additional information
+        if inp_line == "copyright" {
+            main_ii_show_copyright();
+            continue;
+        } else if inp_line == "license" {
+            main_ii_show_license();
+            continue;
+        }
         // push and attempt to parse, check for errors
         while state.ptr > 0 && state.ptr > state.lines.len() {
             state.ptr -= 1;
@@ -1050,6 +1089,9 @@ fn main() {
     // read program from file
     let args: Vec<_> = env::args().collect();
     if args.len() <= 1 {
+        println!("Nhotyp 0.1.0 (default, May 5 2021, 01:52:38)");
+        println!("[rustc 1.50.0 (cb75ad5db 2021-02-10)] on linux");
+        println!("Type \"copyright\" or \"license\" for more information.");
         main_interactive_interpreter();
     } else if args.len() == 2 {
         std::process::exit(main_run_file(&args[1]));
