@@ -313,7 +313,7 @@ impl fmt::Debug for Node {
 }
 
 struct State<'a> {
-    lines: Vec<&'a str>,
+    lines: &'a Vec<&'a str>,
     ptr: usize,
 }
 
@@ -821,10 +821,21 @@ fn call_function(
     }
 }
 
-fn run_program(content: &str) -> Result<i64, Error> {
+fn format_runtime_err(filename: Option<&str>, lines: &Vec<&str>, err: &Error) -> String {
+    let line = err.line();
+    let header = match filename {
+        Some(v) => format!("{}:{}: error: ", v, line),
+        None => format!("stdin:{}: error: ", line),
+    };
+    let padding: String = (2..header.len()).map(|_| ' ').collect();
+    let line = if let Some(v) = lines.get(line) { v } else { "" };
+    format!("{}\n{}> {}\n\n", header, padding, line)
+}
+
+fn execute_program(content: &Vec<&str>) -> Result<i64, Error> {
     // parse file for functions
     let mut state = State {
-        lines: content.split('\n').collect(),
+        lines: content,
         ptr: 0,
     };
     let node = parse_node(&mut state, "")?;
@@ -867,15 +878,7 @@ fn run_program(content: &str) -> Result<i64, Error> {
     Ok(call_function(&prog, &main_token, vec![], 0)?.data as i64)
 }
 
-fn main() {
-    // read program from file
-    let args: Vec<_> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("nhotyp: fatal error: no input files");
-        eprintln!("intepretation terminated.");
-        return;
-    }
-    let filename = &args[1];
+fn main_run_file(filename: &str) -> i32 {
     let content;
     match fs::read_to_string(&filename) {
         Ok(v) => content = v,
@@ -883,12 +886,32 @@ fn main() {
             eprintln!("nhotyp: fatal error: {}: cannot read file", &filename);
             eprintln!("nhotyp: fatal error: no input files");
             eprintln!("interpretation terminated.");
-            return;
+            return 1;
         }
     }
-    // parse and execute
-    match run_program(&content) {
-        Ok(v) => std::process::exit((v & 0xffffffffi64) as i32),
-        Err(err) => eprintln!("{}:{}: error: {}", &args[1], err.line(), err.format()),
+    let lines = content.split('\n').collect();
+    // catch return value or errors
+    match execute_program(&lines) {
+        Ok(v) => (v & 0xffffffffi64) as i32,
+        Err(err) => {
+            eprint!("{}", format_runtime_err(Some(filename), &lines, &err));
+            1
+        }
+    }
+}
+
+fn main_interactive_interpreter() -> () {}
+
+fn main() {
+    // read program from file
+    let args: Vec<_> = env::args().collect();
+    if args.len() <= 1 {
+        main_interactive_interpreter();
+    } else if args.len() == 2 {
+        std::process::exit(main_run_file(&args[1]));
+    } else {
+        eprintln!("nhotyp: fatal error: too many arguments");
+        eprintln!("intepretation terminated.");
+        return;
     }
 }
