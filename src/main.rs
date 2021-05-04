@@ -313,7 +313,7 @@ impl fmt::Debug for Node {
 }
 
 struct State<'a> {
-    lines: &'a Vec<&'a str>,
+    lines: &'a mut Vec<String>,
     ptr: usize,
 }
 
@@ -323,7 +323,7 @@ fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // let <variable> = <expression>
     let len = words.len();
     if len < 4 {
-        return Err(Error::MalformedAssign { line: state.ptr });
+        return Err(Error::MalformedAssign { line: state.ptr - 1 });
     }
     let var = Token::from_var(state.ptr, words[1])?;
     let mut tokens = vec![];
@@ -333,7 +333,7 @@ fn parse_stmt_assign(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     Ok(Statement::Assign {
         var,
         expr: Expr { tokens },
-        line: state.ptr,
+        line: state.ptr - 1,
     })
 }
 
@@ -343,7 +343,7 @@ fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // end if
     let len = words.len();
     if words.len() < 3 || words[len - 1] != "then" {
-        return Err(Error::MalformedCond { line: state.ptr });
+        return Err(Error::MalformedCond { line: state.ptr - 1 });
     }
     // generate expression
     let mut tokens = vec![];
@@ -354,7 +354,7 @@ fn parse_stmt_cond(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     Ok(Statement::Cond {
         expr: Expr { tokens },
         child: parse_node(state, "if")?,
-        line: state.ptr,
+        line: state.ptr - 1,
     })
 }
 
@@ -364,7 +364,7 @@ fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // end while
     let len = words.len();
     if words.len() < 3 || words[len - 1] != "do" {
-        return Err(Error::MalformedLoop { line: state.ptr });
+        return Err(Error::MalformedLoop { line: state.ptr - 1 });
     }
     // generate expression
     let mut tokens = vec![];
@@ -375,7 +375,7 @@ fn parse_stmt_loop(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     Ok(Statement::Loop {
         expr: Expr { tokens },
         child: parse_node(state, "while")?,
-        line: state.ptr,
+        line: state.ptr - 1,
     })
 }
 
@@ -388,7 +388,7 @@ fn parse_stmt_print(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     }
     Ok(Statement::Print {
         vars,
-        line: state.ptr,
+        line: state.ptr - 1,
     })
 }
 
@@ -396,7 +396,7 @@ fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // return <expression>
     let len = words.len();
     if len < 2 {
-        return Err(Error::MalformedRet { line: state.ptr });
+        return Err(Error::MalformedRet { line: state.ptr - 1 });
     }
     let mut tokens = vec![];
     for i in 1..len {
@@ -404,7 +404,7 @@ fn parse_stmt_ret(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     }
     Ok(Statement::Ret {
         expr: Expr { tokens },
-        line: state.ptr,
+        line: state.ptr - 1,
     })
 }
 
@@ -414,7 +414,7 @@ fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     // end function
     let len = words.len();
     if words.len() < 3 || words[len - 1] != "as" {
-        return Err(Error::MalformedFunc { line: state.ptr });
+        return Err(Error::MalformedFunc { line: state.ptr - 1 });
     }
     // parse parameters
     let name = Token::from_var(state.ptr, words[1])?;
@@ -423,7 +423,7 @@ fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         let token = Token::from_var(state.ptr, words[i])?;
         if is_reserved_kw(&token.value) {
             return Err(Error::DuplicateToken {
-                line: state.ptr,
+                line: state.ptr - 1,
                 value: token.value,
             });
         }
@@ -431,14 +431,14 @@ fn parse_stmt_func(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
     }
     // too many parameters
     if params.len() > 16 {
-        return Err(Error::MalformedFunc { line: state.ptr });
+        return Err(Error::MalformedFunc { line: state.ptr - 1 });
     }
     // get child node
     Ok(Statement::Func {
         name,
         params,
         child: parse_node(state, "function")?,
-        line: state.ptr,
+        line: state.ptr - 1,
     })
 }
 
@@ -451,7 +451,7 @@ fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
         "return" => parse_stmt_ret(state, &words),
         "function" => parse_stmt_func(state, &words),
         _ => Err(Error::UnknownToken {
-            line: state.ptr,
+            line: state.ptr - 1,
             value: String::from(words[0].to_string()),
         }),
     }
@@ -463,7 +463,7 @@ fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
     // splitting words here to check for terminations
     while state.ptr < state.lines.len() {
         // eradicate comments
-        let mut line = String::from(state.lines[state.ptr]);
+        let mut line = state.lines[state.ptr].clone();
         state.ptr += 1;
         if line.contains('#') {
             let splits: Vec<_> = line.split('#').collect();
@@ -480,7 +480,7 @@ fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
                 gracefully_ended = true;
                 break;
             }
-            return Err(Error::MalformedEnd { line: state.ptr });
+            return Err(Error::MalformedEnd { line: state.ptr - 1 });
         }
         // send statement to corresponding parser
         stmts.push(parse_stmt(state, &words)?);
@@ -664,7 +664,7 @@ fn eval_expr_func(
     Ok(match op_token {
         "scan" => {
             let mut inp = String::new();
-            print!(">>> ");
+            print!("  > ");
             std::io::stdout().flush().expect("unable to flush stdout");
             if let Err(_) = std::io::stdin().read_line(&mut inp) {
                 return Err(Error::InputError {
@@ -748,7 +748,8 @@ fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Er
             exec_node(instance, &child)?;
         },
         &Statement::Print { vars, line } => {
-            print!("...");
+            // collect values
+            let mut vals = vec![];
             for var in vars {
                 if !instance.scope.contains_key(var) {
                     return Err(Error::UndeclaredToken {
@@ -756,8 +757,12 @@ fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Er
                         value: String::from(&var.value),
                     });
                 }
-                let val = &instance.scope[&var];
-                print!(" {}", val.data);
+                vals.push(instance.scope[&var].data);
+            }
+            // flush into stdout in one go
+            print!("  .");
+            for val in vals {
+                print!(" {}", val);
             }
             println!("");
             std::io::stdout().flush().expect("unable to flush stdout");
@@ -821,18 +826,23 @@ fn call_function(
     }
 }
 
-fn format_runtime_err(filename: Option<&str>, lines: &Vec<&str>, err: &Error) -> String {
+fn format_runtime_err(
+    filename: Option<&str>,
+    lines: &Vec<String>,
+    err: &Error,
+    line_offset: usize,
+) -> String {
     let line = err.line();
     let header = match filename {
-        Some(v) => format!("{}:{}: error: ", v, line),
-        None => format!("stdin:{}: error: ", line),
+        Some(v) => format!("{}:{}: error: ", v, line + line_offset),
+        None => format!("stdin:{}: error: ", line + line_offset),
     };
     let padding: String = (2..header.len()).map(|_| ' ').collect();
     let line = if let Some(v) = lines.get(line) { v } else { "" };
-    format!("{}\n{}> {}\n\n", header, padding, line)
+    format!("{}{}\n{}> {}\n", header, err, padding, line.trim())
 }
 
-fn execute_program(content: &Vec<&str>) -> Result<i64, Error> {
+fn execute_program(content: &mut Vec<String>) -> Result<i64, Error> {
     // parse file for functions
     let mut state = State {
         lines: content,
@@ -875,7 +885,7 @@ fn execute_program(content: &Vec<&str>) -> Result<i64, Error> {
     let main_token = Token {
         value: String::from("main"),
     };
-    Ok(call_function(&prog, &main_token, vec![], 0)?.data as i64)
+    Ok(call_function(&mut prog, &main_token, vec![], 0)?.data as i64)
 }
 
 fn main_run_file(filename: &str) -> i32 {
@@ -889,18 +899,152 @@ fn main_run_file(filename: &str) -> i32 {
             return 1;
         }
     }
-    let lines = content.split('\n').collect();
+    let mut lines = content.split('\n').map(|s| String::from(s)).collect();
     // catch return value or errors
-    match execute_program(&lines) {
+    match execute_program(&mut lines) {
         Ok(v) => (v & 0xffffffffi64) as i32,
         Err(err) => {
-            eprint!("{}", format_runtime_err(Some(filename), &lines, &err));
+            eprint!("{}", format_runtime_err(Some(filename), &lines, &err, 1));
             1
         }
     }
 }
 
-fn main_interactive_interpreter() -> () {}
+fn execute_block(
+    state: &mut State,
+    prog: &mut Program,
+    scope: &mut HashMap<Token, Variable>,
+    main_stmts: &mut Vec<Statement>,
+    last_ptr: &mut usize,
+    exec_ptr: &mut usize,
+) -> Result<(), Error> {
+    // try to parse node into statements
+    let node = parse_node(state, "")?;
+    // validate all statements, adding function, denying return
+    for stmt in node.stmts {
+        if let Statement::Func {
+            name,
+            params,
+            child,
+            line,
+        } = stmt
+        {
+            if is_reserved_kw(&name.value) || prog.funcs.contains_key(&name) {
+                return Err(Error::DuplicateToken {
+                    line,
+                    value: name.value,
+                });
+            }
+            prog.funcs.insert(
+                Token {
+                    value: String::from(&name.value),
+                },
+                Function {
+                    params,
+                    root: child,
+                    line,
+                },
+            );
+        } else if let Statement::Ret { line, .. } = stmt {
+            return Err(Error::WildStatement { line });
+        } else {
+            main_stmts.push(stmt);
+        }
+    }
+    // create instance
+    let mut new_scope = HashMap::new();
+    for key in scope.keys() {
+        new_scope.insert(key.clone(), scope[key].clone());
+    }
+    let mut instance = RunInstance {
+        prog: prog,
+        scope: new_scope,
+    };
+    // attempt execution
+    let mut new_exec_ptr = *exec_ptr;
+    while new_exec_ptr < main_stmts.len() {
+        let stmt = &main_stmts[new_exec_ptr];
+        exec_statement(&mut instance, stmt)?;
+        new_exec_ptr += 1;
+    }
+    // writeback state
+    for key in instance.scope.keys() {
+        scope.insert(key.clone(), instance.scope[key].clone());
+    }
+    *last_ptr = state.ptr;
+    *exec_ptr = new_exec_ptr;
+    Ok(())
+}
+
+fn main_interactive_interpreter() -> () {
+    // prepare interactive parsing
+    // first empty line is magic, used to avoid -1 pointers
+    // output debug messages need to be checked for sanity (line + 1)
+    let mut lines: Vec<String> = vec![String::default()];
+    let mut state = State {
+        lines: &mut lines,
+        ptr: 0,
+    };
+    // prepare execution unit (this is modifed on interaction)
+    let mut prog = Program {
+        funcs: HashMap::new(),
+    };
+    let mut main_stmts = vec![];
+    let mut scope = HashMap::new();
+    // the next statement to execute exec_ptr[..]
+    let mut exec_ptr = 0;
+    // the last validated lines[..]
+    let mut last_ptr = 0; 
+    // start parsing
+    let mut in_block = false;
+    loop {
+        // read input if possible
+        let mut inp_line = String::new();
+        print!("{}", if !in_block { ">>> " } else { "... " });
+        std::io::stdout().flush().expect("unable to flush stdout");
+        // reached EOF, gracefully exit
+        if let Err(_) = std::io::stdin().read_line(&mut inp_line) {
+            break;
+        }
+        inp_line = String::from(inp_line.trim());
+        // push and attempt to parse, check for errors
+        while state.ptr > 0 && state.ptr > state.lines.len() {
+            state.ptr -= 1;
+        }
+        state.lines.push(inp_line);
+        match execute_block(
+            &mut state,
+            &mut prog,
+            &mut scope,
+            &mut main_stmts,
+            &mut last_ptr,
+            &mut exec_ptr,
+        ) {
+            Ok(()) => {
+                in_block = false;
+            }
+            Err(Error::UnclosedBlock) => {
+                in_block = true;
+                state.ptr = last_ptr;
+                continue;
+            }
+            Err(err) => {
+                in_block = false;
+                print!("{}", format_runtime_err(None, state.lines, &err, 0));
+                while state.lines.len() > last_ptr + 1 {
+                    state.lines.pop();
+                }
+                while main_stmts.len() > exec_ptr {
+                    main_stmts.pop();
+                }
+                state.ptr = last_ptr;
+                continue;
+            }
+        };
+    }
+    println!("\n");
+    return;
+}
 
 fn main() {
     // read program from file
