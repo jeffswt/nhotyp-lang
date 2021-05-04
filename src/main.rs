@@ -20,6 +20,7 @@ enum Error {
     MalformedRet { line: usize },
     MalformedFunc { line: usize },
     MalformedEnd { line: usize },
+    UnclosedBlock,
     DuplicateToken { line: usize, value: String },
     WildStatement { line: usize },
     WildFunction { line: usize },
@@ -41,6 +42,7 @@ impl Error {
             Self::MalformedRet { line } => format!("MalformedRet({})", line),
             Self::MalformedFunc { line } => format!("MalformedFunc({})", line),
             Self::MalformedEnd { line } => format!("MalformedEnd({})", line),
+            Self::UnclosedBlock => format!("UnclosedBlock"),
             Self::DuplicateToken { line, value } => {
                 format!("DuplicateToken({}, {:?})", line, value)
             }
@@ -84,6 +86,7 @@ impl Error {
             Self::MalformedEnd { .. } => {
                 format!("illegal code block end")
             }
+            Self::UnclosedBlock => format!("code block unclosed"),
             Self::DuplicateToken { value, .. } => {
                 format!("conflict token {:?}", value)
             }
@@ -119,6 +122,7 @@ impl Error {
             Self::MalformedRet { line, .. } => *line,
             Self::MalformedFunc { line, .. } => *line,
             Self::MalformedEnd { line, .. } => *line,
+            Self::UnclosedBlock => 0,
             Self::DuplicateToken { line, .. } => *line,
             Self::WildStatement { line, .. } => *line,
             Self::WildFunction { line, .. } => *line,
@@ -455,6 +459,7 @@ fn parse_stmt(state: &mut State, words: &Vec<&str>) -> StmtParseResult {
 
 fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
     let mut stmts = vec![];
+    let mut gracefully_ended = term.len() == 0;
     // splitting words here to check for terminations
     while state.ptr < state.lines.len() {
         // eradicate comments
@@ -472,12 +477,17 @@ fn parse_node(state: &mut State, term: &str) -> Result<Node, Error> {
         // 'end' statement triggers code block close
         if words[0] == "end" {
             if words.len() == 2 && words[1] == term {
+                gracefully_ended = true;
                 break;
             }
             return Err(Error::MalformedEnd { line: state.ptr });
         }
         // send statement to corresponding parser
         stmts.push(parse_stmt(state, &words)?);
+    }
+    // check if block is unterminated
+    if !gracefully_ended {
+        return Err(Error::UnclosedBlock);
     }
     // done node parsing
     Ok(Node { stmts })
