@@ -760,7 +760,7 @@ fn exec_statement(instance: &mut RunInstance, stmt: &Statement) -> Result<(), Er
                 vals.push(instance.scope[&var].data);
             }
             // flush into stdout in one go
-            print!("  .");
+            print!("   ");
             for val in vals {
                 print!(" {}", val);
             }
@@ -971,7 +971,7 @@ fn execute_block(
     for key in instance.scope.keys() {
         scope.insert(key.clone(), instance.scope[key].clone());
     }
-    *last_ptr = state.ptr;
+    *last_ptr = state.ptr - 1;
     *exec_ptr = new_exec_ptr;
     Ok(())
 }
@@ -1038,6 +1038,10 @@ fn main_interactive_interpreter() -> () {
             break;
         }
         inp_line = String::from(inp_line.trim());
+        // not something that we should consider
+        if inp_line.is_empty() {
+            continue;
+        }
         // additional information
         if inp_line == "copyright" {
             main_ii_show_copyright();
@@ -1089,7 +1093,7 @@ fn main() {
     // read program from file
     let args: Vec<_> = env::args().collect();
     if args.len() <= 1 {
-        println!("Nhotyp 0.1.0 (default, May 5 2021, 01:52:38)");
+        println!("Nhotyp 0.1.0 (default, nightly-latest)");
         println!("[rustc 1.50.0 (cb75ad5db 2021-02-10)] on linux");
         println!("Type \"copyright\" or \"license\" for more information.");
         main_interactive_interpreter();
