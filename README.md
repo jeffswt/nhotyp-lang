@@ -18,6 +18,10 @@ cargo run your_code.nh
 
 You may find some samples in the `samples/` folder.
 
+An alternative interactive console is available, if no parameters were given to the interpreter.
+
+![](./docs/assets/interactive_console.svg)
+
 ## Specifications
 
 ### 1. Comments
@@ -253,8 +257,7 @@ A deprecated Chinese version of the specification is available at `README_zh.md`
 ## Trivia
 
 * When you reverse the string *Python*, you get *nohtyP*. The letter *o* and *h* were swapped only to make it look better and looks more like an actual word (but it's not).
+* Nhotyp really has no types.
 * Ignoring the error handling part will shorten your code for at least 50%.
-* The size of all documentations summed up surpasses that of the interpreter itself.
 * Nhotyp actually took its inspiration from Python, Rust and Pascal.
-* It should have an interactive terminal, but it's not currently on the todo list.
 
